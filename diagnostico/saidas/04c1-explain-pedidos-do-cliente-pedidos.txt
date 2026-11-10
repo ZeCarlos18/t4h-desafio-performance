@@ -1,0 +1,27 @@
+# GET /clientes/12345/pedidos: consulta dos pedidos (1 vez por requisição)
+# gerado por diagnostico/coletar.sh em 2026-11-09 20:56:44 -0300, commit 4ab9a32
+
+SELECT * FROM pedidos WHERE cliente_id = 12345 ORDER BY criado_em DESC, id DESC;
+
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Gather Merge  (cost=24438.20..24438.67 rows=4 width=299) (actual time=41.073..43.534 rows=5 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   Buffers: shared hit=1004 read=19956
+   ->  Sort  (cost=23438.18..23438.18 rows=2 width=299) (actual time=39.043..39.044 rows=2 loops=3)
+         Sort Key: criado_em DESC, id DESC
+         Sort Method: quicksort  Memory: 25kB
+         Buffers: shared hit=1004 read=19956
+         Worker 0:  Sort Method: quicksort  Memory: 25kB
+         Worker 1:  Sort Method: quicksort  Memory: 25kB
+         ->  Parallel Seq Scan on pedidos  (cost=0.00..23438.17 rows=2 width=299) (actual time=12.251..38.977 rows=2 loops=3)
+               Filter: (cliente_id = 12345)
+               Rows Removed by Filter: 166665
+               Buffers: shared hit=878 read=19956
+ Planning:
+   Buffers: shared hit=84
+ Planning Time: 0.357 ms
+ Execution Time: 43.588 ms
+(18 rows)
+

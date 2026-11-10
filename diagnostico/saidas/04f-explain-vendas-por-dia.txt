@@ -1,0 +1,38 @@
+# GET /relatorios/vendas-por-dia?inicio=2024-06-01&fim=2024-06-07
+# gerado por diagnostico/coletar.sh em 2026-11-09 20:56:46 -0300, commit 4ab9a32
+
+SELECT p.id AS pedido_id, p.criado_em, p.observacoes, i.quantidade, i.preco_unitario_centavos
+     FROM pedidos p JOIN itens_pedido i ON i.pedido_id = p.id
+    WHERE p.criado_em::date BETWEEN '2024-06-01' AND '2024-06-07' AND p.status <> 'cancelado';
+
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather  (cost=26533.24..44654.77 rows=6759 width=297) (actual time=66.769..360.809 rows=12922 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   Buffers: shared hit=10913 read=19668
+   ->  Parallel Hash Join  (cost=25533.24..42978.87 rows=2816 width=297) (actual time=64.486..289.006 rows=4307 loops=3)
+         Hash Cond: (i.pedido_id = p.id)
+         Buffers: shared hit=10913 read=19668
+         ->  Parallel Seq Scan on itens_pedido i  (cost=0.00..15805.00 rows=625000 width=12) (actual time=0.013..79.163 rows=500000 loops=3)
+               Buffers: shared hit=9555
+         ->  Parallel Hash  (cost=25521.50..25521.50 rows=939 width=289) (actual time=64.073..64.074 rows=1437 loops=3)
+               Buckets: 8192 (originally 4096)  Batches: 1 (originally 1)  Memory Usage: 1536kB
+               Buffers: shared hit=1166 read=19668
+               ->  Parallel Seq Scan on pedidos p  (cost=0.00..25521.50 rows=939 width=289) (actual time=0.162..52.970 rows=1437 loops=3)
+                     Filter: ((status <> 'cancelado'::text) AND ((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     Rows Removed by Filter: 165230
+                     Buffers: shared hit=1166 read=19668
+ Planning:
+   Buffers: shared hit=220
+ Planning Time: 0.479 ms
+ Execution Time: 361.356 ms
+(20 rows)
+
+
+# Volume que essa consulta manda do banco para a API (a API só usa pedido_id, criado_em, quantidade e preço):
+ linhas_enviadas | bytes_so_de_observacoes 
+-----------------+-------------------------
+           12922 | 3459 kB
+(1 row)
+

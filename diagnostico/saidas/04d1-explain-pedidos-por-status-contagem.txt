@@ -1,0 +1,25 @@
+# GET /pedidos?status=pago&pagina=500: contagem
+# gerado por diagnostico/coletar.sh em 2026-11-09 20:56:45 -0300, commit 4ab9a32
+
+SELECT count(*) AS total FROM pedidos WHERE status = 'pago';
+
+                                                                QUERY PLAN                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=24751.00..24751.01 rows=1 width=8) (actual time=90.947..92.782 rows=1 loops=1)
+   Buffers: shared hit=974 read=19860
+   ->  Gather  (cost=24750.79..24751.00 rows=2 width=8) (actual time=90.830..92.775 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=974 read=19860
+         ->  Partial Aggregate  (cost=23750.79..23750.80 rows=1 width=8) (actual time=88.946..88.947 rows=1 loops=3)
+               Buffers: shared hit=974 read=19860
+               ->  Parallel Seq Scan on pedidos  (cost=0.00..23438.17 rows=125049 width=0) (actual time=0.030..83.991 rows=100000 loops=3)
+                     Filter: (status = 'pago'::text)
+                     Rows Removed by Filter: 66667
+                     Buffers: shared hit=974 read=19860
+ Planning:
+   Buffers: shared hit=66
+ Planning Time: 0.188 ms
+ Execution Time: 92.851 ms
+(16 rows)
+

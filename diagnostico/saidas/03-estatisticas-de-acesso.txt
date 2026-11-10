@@ -1,0 +1,18 @@
+# Leituras acumuladas desde a criação do banco (geração dos dados, contrato, medições e execuções anteriores deste script)
+# gerado por diagnostico/coletar.sh em 2026-11-09 20:56:43 -0300, commit 4ab9a32
+
+seq_scan = leituras da tabela inteira; idx_scan = leituras por índice.
+
+    tabela    | seq_scan | linhas_lidas_em_seq_scan | idx_scan | linhas_lidas_por_indice 
+--------------+----------+--------------------------+----------+-------------------------
+ itens_pedido |     2011 |               1456500000 |        3 |                 1499914
+ pedidos      |     1058 |                250500000 |  1500218 |                 1500000
+ clientes     |      146 |                 14500000 |   582830 |                  582820
+ produtos     |      252 |                  5020000 |  1502538 |                 1502458
+(4 rows)
+
+ datname | sessoes_abertas | transacoes | paginas_do_cache | paginas_do_disco | pct_cache 
+---------+-----------------+------------+------------------+------------------+-----------
+ loja    |            7019 |      97140 |         36998431 |          8548959 |     81.23
+(1 row)
+

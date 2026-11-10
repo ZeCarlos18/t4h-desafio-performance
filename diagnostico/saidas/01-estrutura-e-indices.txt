@@ -1,0 +1,83 @@
+# Estrutura das tabelas, tamanho em disco e índices existentes
+# gerado por diagnostico/coletar.sh em 2026-11-09 20:56:42 -0300, commit 4ab9a32
+
+                                                       version                                                       
+---------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 16.4 (Debian 16.4-1.pgdg120+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14) 12.2.0, 64-bit
+(1 row)
+
+                         Table "public.clientes"
+  Column   |            Type             | Collation | Nullable | Default 
+-----------+-----------------------------+-----------+----------+---------
+ id        | integer                     |           | not null | 
+ nome      | text                        |           | not null | 
+ email     | text                        |           | not null | 
+ cidade    | text                        |           | not null | 
+ criado_em | timestamp without time zone |           | not null | 
+Indexes:
+    "clientes_pkey" PRIMARY KEY, btree (id)
+Referenced by:
+    TABLE "pedidos" CONSTRAINT "pedidos_cliente_id_fkey" FOREIGN KEY (cliente_id) REFERENCES clientes(id)
+
+                  Table "public.produtos"
+     Column     |  Type   | Collation | Nullable | Default 
+----------------+---------+-----------+----------+---------
+ id             | integer |           | not null | 
+ nome           | text    |           | not null | 
+ categoria      | text    |           | not null | 
+ preco_centavos | integer |           | not null | 
+Indexes:
+    "produtos_pkey" PRIMARY KEY, btree (id)
+Referenced by:
+    TABLE "itens_pedido" CONSTRAINT "itens_pedido_produto_id_fkey" FOREIGN KEY (produto_id) REFERENCES produtos(id)
+
+                           Table "public.pedidos"
+   Column    |            Type             | Collation | Nullable | Default 
+-------------+-----------------------------+-----------+----------+---------
+ id          | integer                     |           | not null | 
+ cliente_id  | integer                     |           | not null | 
+ status      | text                        |           | not null | 
+ criado_em   | timestamp without time zone |           | not null | 
+ observacoes | text                        |           | not null | 
+Indexes:
+    "pedidos_pkey" PRIMARY KEY, btree (id)
+Foreign-key constraints:
+    "pedidos_cliente_id_fkey" FOREIGN KEY (cliente_id) REFERENCES clientes(id)
+Referenced by:
+    TABLE "itens_pedido" CONSTRAINT "itens_pedido_pedido_id_fkey" FOREIGN KEY (pedido_id) REFERENCES pedidos(id)
+
+                    Table "public.itens_pedido"
+         Column          |  Type   | Collation | Nullable | Default 
+-------------------------+---------+-----------+----------+---------
+ id                      | integer |           | not null | 
+ pedido_id               | integer |           | not null | 
+ produto_id              | integer |           | not null | 
+ quantidade              | integer |           | not null | 
+ preco_unitario_centavos | integer |           | not null | 
+Indexes:
+    "itens_pedido_pkey" PRIMARY KEY, btree (id)
+Foreign-key constraints:
+    "itens_pedido_pedido_id_fkey" FOREIGN KEY (pedido_id) REFERENCES pedidos(id)
+    "itens_pedido_produto_id_fkey" FOREIGN KEY (produto_id) REFERENCES produtos(id)
+
+    tabela    | linhas_estimadas |  dados  | indices |  total  
+--------------+------------------+---------+---------+---------
+ pedidos      |           500000 | 163 MB  | 11 MB   | 174 MB
+ itens_pedido |          1500000 | 75 MB   | 32 MB   | 107 MB
+ clientes     |           100000 | 9288 kB | 2208 kB | 11 MB
+ produtos     |            20000 | 1560 kB | 456 kB  | 2016 kB
+(4 rows)
+
+    tabela    |      indice       |                                   definicao                                   
+--------------+-------------------+-------------------------------------------------------------------------------
+ clientes     | clientes_pkey     | CREATE UNIQUE INDEX clientes_pkey ON public.clientes USING btree (id)
+ itens_pedido | itens_pedido_pkey | CREATE UNIQUE INDEX itens_pedido_pkey ON public.itens_pedido USING btree (id)
+ pedidos      | pedidos_pkey      | CREATE UNIQUE INDEX pedidos_pkey ON public.pedidos USING btree (id)
+ produtos     | produtos_pkey     | CREATE UNIQUE INDEX produtos_pkey ON public.produtos USING btree (id)
+(4 rows)
+
+ tamanho_do_banco 
+------------------
+ 301 MB
+(1 row)
+

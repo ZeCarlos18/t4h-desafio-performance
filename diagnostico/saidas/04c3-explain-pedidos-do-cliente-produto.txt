@@ -1,0 +1,16 @@
+# GET /clientes/12345/pedidos: consulta do produto (1 vez POR ITEM), produto 2208
+# gerado por diagnostico/coletar.sh em 2026-11-09 20:56:45 -0300, commit 4ab9a32
+
+SELECT * FROM produtos WHERE id = 2208;
+
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Index Scan using produtos_pkey on produtos  (cost=0.29..8.30 rows=1 width=44) (actual time=0.019..0.019 rows=1 loops=1)
+   Index Cond: (id = 2208)
+   Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=70
+ Planning Time: 0.202 ms
+ Execution Time: 0.046 ms
+(7 rows)
+

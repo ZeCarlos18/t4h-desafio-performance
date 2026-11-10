@@ -1,0 +1,29 @@
+# GET /pedidos?status=pago&pagina=500: página (OFFSET 9980)
+# gerado por diagnostico/coletar.sh em 2026-11-09 20:56:45 -0300, commit 4ab9a32
+
+SELECT * FROM pedidos WHERE status = 'pago' ORDER BY criado_em DESC, id DESC LIMIT 20 OFFSET 9980;
+
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=34535.93..34538.26 rows=20 width=299) (actual time=309.946..315.089 rows=20 loops=1)
+   Buffers: shared hit=1196 read=19764, temp read=1420 written=11507
+   ->  Gather Merge  (cost=33371.51..62551.65 rows=250098 width=299) (actual time=305.838..314.795 rows=10000 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=1196 read=19764, temp read=1420 written=11507
+         ->  Sort  (cost=32371.49..32684.11 rows=125049 width=299) (actual time=303.023..303.604 rows=3455 loops=3)
+               Sort Key: criado_em DESC, id DESC
+               Sort Method: external merge  Disk: 35352kB
+               Buffers: shared hit=1196 read=19764, temp read=1420 written=11507
+               Worker 0:  Sort Method: external merge  Disk: 28928kB
+               Worker 1:  Sort Method: external merge  Disk: 27520kB
+               ->  Parallel Seq Scan on pedidos  (cost=0.00..23438.17 rows=125049 width=299) (actual time=0.016..77.676 rows=100000 loops=3)
+                     Filter: (status = 'pago'::text)
+                     Rows Removed by Filter: 66667
+                     Buffers: shared hit=1070 read=19764
+ Planning:
+   Buffers: shared hit=92
+ Planning Time: 0.308 ms
+ Execution Time: 318.566 ms
+(20 rows)
+

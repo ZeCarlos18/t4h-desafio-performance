@@ -1,0 +1,9 @@
+# O que a API escreve no log a cada requisição (api/src/server.js registra o corpo inteiro da resposta)
+# gerado por diagnostico/coletar.sh em 2026-11-09 20:58:05 -0300, commit 4ab9a32
+
+Tamanho total do log da API desde que o container subiu:
+  linhas: 1006   bytes: 1168661
+
+Maior linha de log (bytes) e os primeiros 300 caracteres dela:
+  6324 bytes
+  {"metodo":"GET","url":"/relatorios/top-produtos?limite=50","status":200,"duracao_ms":1196,"resposta":[{"produto_id":167,"nome":"Mochila Slim Modelo 167","categoria":"Acessorios","unidades":10052,"receita_centavos":4882457440},{"produto_id":43,"nome":"Teclado Premium Modelo 43","categoria":"Periferic...

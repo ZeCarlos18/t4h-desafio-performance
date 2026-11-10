@@ -1,0 +1,21 @@
+# GET /clientes?email=cliente12345@exemplo.com
+# gerado por diagnostico/coletar.sh em 2026-11-09 20:56:44 -0300, commit 4ab9a32
+
+SELECT * FROM clientes WHERE lower(email) = lower('cliente12345@exemplo.com') ORDER BY id;
+
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ Sort  (cost=2678.41..2679.66 rows=500 width=60) (actual time=40.667..40.668 rows=1 loops=1)
+   Sort Key: id
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=4 read=1155
+   ->  Seq Scan on clientes  (cost=0.00..2656.00 rows=500 width=60) (actual time=5.407..40.651 rows=1 loops=1)
+         Filter: (lower(email) = 'cliente12345@exemplo.com'::text)
+         Rows Removed by Filter: 99999
+         Buffers: shared hit=1 read=1155
+ Planning:
+   Buffers: shared hit=81
+ Planning Time: 0.331 ms
+ Execution Time: 40.692 ms
+(12 rows)
+

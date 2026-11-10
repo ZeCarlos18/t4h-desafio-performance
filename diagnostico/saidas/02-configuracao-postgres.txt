@@ -1,0 +1,17 @@
+# Parâmetros do PostgreSQL em uso (source = default quer dizer valor de fábrica)
+# gerado por diagnostico/coletar.sh em 2026-11-09 20:56:43 -0300, commit 4ab9a32
+
+              name               | setting | unit |       source       
+---------------------------------+---------+------+--------------------
+ effective_cache_size            | 524288  | 8kB  | default
+ effective_io_concurrency        | 1       |      | default
+ jit                             | on      |      | default
+ maintenance_work_mem            | 65536   | kB   | default
+ max_connections                 | 100     |      | configuration file
+ max_parallel_workers_per_gather | 2       |      | default
+ random_page_cost                | 4       |      | default
+ shared_buffers                  | 16384   | 8kB  | configuration file
+ shared_preload_libraries        |         |      | default
+ work_mem                        | 4096    | kB   | default
+(10 rows)
+

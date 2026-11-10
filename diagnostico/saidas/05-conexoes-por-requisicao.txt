@@ -1,0 +1,23 @@
+# Sem carga: 10 requisições seguidas de cada rota, com tempo médio, tamanho da resposta e conexões abertas no banco
+# gerado por diagnostico/coletar.sh em 2026-11-09 20:56:49 -0300, commit 4ab9a32
+
+Método: diferença do contador sessions de pg_stat_database antes e depois das 10 requisições, dividida por 10.
+O contador também conta a própria leitura (1 sessão) e o healthcheck do compose (pg_isready a cada 5 s),
+então o valor por requisição pode passar um pouco do real. A linha 'controle' mostra esse ruído sem nenhuma requisição.
+
+requisicao                                                       http tempo_medio_s    bytes sessoes_total sessoes_por_requisicao
+controle: 10 s sem requisição                                     -            -        -             3                    -
+GET /clientes/12345                                               200       0.0068      125            11                  1.1
+GET /clientes?email=cliente12345@exemplo.com                      200       0.0421      127            12                  1.2
+GET /clientes/12345/pedidos                                       200       0.6996     3365           323                 32.3
+GET /pedidos?status=pago&pagina=500                               200       0.3533     1814            22                  2.2
+GET /produtos/busca?q=cadeira                                     200       0.0203     1891            11                  1.1
+GET /relatorios/vendas-por-dia?inicio=2024-06-01&fim=2024-06-07    200       0.3274      540            12                  1.2
+GET /relatorios/top-produtos?limite=10                            200       1.2019     1257            14                  1.4
+
+Para conferir a conta da rota de pedidos do cliente (1 consulta do cliente + 1 dos pedidos + 1 por pedido + 1 por item):
+ pedidos | itens | consultas_esperadas 
+---------+-------+---------------------
+       5 |    25 |                  32
+(1 row)
+

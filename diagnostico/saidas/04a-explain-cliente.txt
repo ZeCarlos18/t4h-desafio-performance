@@ -1,0 +1,16 @@
+# GET /clientes/12345
+# gerado por diagnostico/coletar.sh em 2026-11-09 20:56:44 -0300, commit 4ab9a32
+
+SELECT * FROM clientes WHERE id = 12345;
+
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Index Scan using clientes_pkey on clientes  (cost=0.29..8.31 rows=1 width=60) (actual time=0.008..0.008 rows=1 loops=1)
+   Index Cond: (id = 12345)
+   Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=73
+ Planning Time: 0.221 ms
+ Execution Time: 0.044 ms
+(7 rows)
+

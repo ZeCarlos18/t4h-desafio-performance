@@ -1,0 +1,25 @@
+# GET /clientes/12345/pedidos: consulta dos itens (1 vez POR PEDIDO), pedido 413064
+# gerado por diagnostico/coletar.sh em 2026-11-09 20:56:45 -0300, commit 4ab9a32
+
+SELECT * FROM itens_pedido WHERE pedido_id = 413064 ORDER BY id;
+
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=18367.94..18367.95 rows=4 width=20) (actual time=80.408..83.365 rows=5 loops=1)
+   Sort Key: id
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=9558
+   ->  Gather  (cost=1000.00..18367.90 rows=4 width=20) (actual time=80.291..83.346 rows=5 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=9555
+         ->  Parallel Seq Scan on itens_pedido  (cost=0.00..17367.50 rows=2 width=20) (actual time=77.154..78.552 rows=2 loops=3)
+               Filter: (pedido_id = 413064)
+               Rows Removed by Filter: 499998
+               Buffers: shared hit=9555
+ Planning:
+   Buffers: shared hit=73
+ Planning Time: 0.257 ms
+ Execution Time: 83.407 ms
+(16 rows)
+

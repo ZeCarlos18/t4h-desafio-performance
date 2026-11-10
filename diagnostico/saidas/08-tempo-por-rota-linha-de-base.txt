@@ -1,0 +1,13 @@
+# Tempo de resposta acumulado por rota, somando 3 medição(ões):
+#   resultados/20261109-202901-00-linha-de-base
+#   resultados/20261109-203045-00-linha-de-base
+#   resultados/20261109-203226-00-linha-de-base
+
+rota                 requisicoes pct_requisicoes tempo_total_s pct_do_tempo
+pedidos-do-cliente           134           21.8%        2559.5        64.5%
+pedidos-por-status            66           10.7%         625.7        15.8%
+vendas-por-dia                42            6.8%         321.1         8.1%
+top-produtos                   9            1.5%         173.2         4.4%
+cliente-por-email            110           17.9%         161.9         4.1%
+busca-produtos               100           16.2%          74.9         1.9%
+cliente                      155           25.2%          55.0         1.4%
