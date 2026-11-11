@@ -1,0 +1,51 @@
+# Experimento 01: evidências depois dos índices
+# gerado por analise/evidencias-01-indices-fk.sh em 2026-11-11 20:28:57 -0300, commit 410a109
+
+## Índices das tabelas pedidos e itens_pedido e o espaço que ocupam
+           indice           | tamanho |  bytes   
+----------------------------+---------+----------
+ pedidos_pkey               | 11 MB   | 11255808
+ itens_pedido_pkey          | 32 MB   | 33710080
+ itens_pedido_pedido_id_idx | 21 MB   | 22003712
+ pedidos_cliente_id_idx     | 5720 kB |  5857280
+(4 rows)
+
+ tamanho_do_banco 
+------------------
+ 328 MB
+(1 row)
+
+
+## GET /clientes/12345/pedidos: consulta dos pedidos (antes: diagnostico/saidas/04c1)
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=24.57..24.58 rows=5 width=299) (actual time=0.112..0.113 rows=5 loops=1)
+   Sort Key: criado_em DESC, id DESC
+   Sort Method: quicksort  Memory: 26kB
+   Buffers: shared hit=14
+   ->  Index Scan using pedidos_cliente_id_idx on pedidos  (cost=0.42..24.51 rows=5 width=299) (actual time=0.045..0.058 rows=5 loops=1)
+         Index Cond: (cliente_id = 12345)
+         Buffers: shared hit=8
+ Planning:
+   Buffers: shared hit=97
+ Planning Time: 0.255 ms
+ Execution Time: 0.795 ms
+(11 rows)
+
+
+## GET /clientes/12345/pedidos: consulta dos itens, pedido 413064 (antes: diagnostico/saidas/04c2)
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=8.54..8.55 rows=4 width=20) (actual time=0.654..0.655 rows=5 loops=1)
+   Sort Key: id
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=5 read=2
+   ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido  (cost=0.43..8.50 rows=4 width=20) (actual time=0.633..0.636 rows=5 loops=1)
+         Index Cond: (pedido_id = 413064)
+         Buffers: shared hit=2 read=2
+ Planning:
+   Buffers: shared hit=85
+ Planning Time: 0.201 ms
+ Execution Time: 0.680 ms
+(11 rows)
+
