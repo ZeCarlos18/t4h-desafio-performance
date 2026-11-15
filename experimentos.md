@@ -20,6 +20,7 @@ O **antes** de cada linha é a mudança anterior; o da primeira é a linha de ba
 | 03 | `pg.Pool` na API (tamanho padrão, `max` = 10) no lugar de uma conexão nova por consulta | [pesquisa.md](pesquisa.md): O2, O12, O13 | Aplicada e medida | 7,05 · 13.370 ms | 8,23 · 7.431 ms | [03-pool-conexoes-medianas.md](analise/saidas/03-pool-conexoes-medianas.md) | Vazão +16,7% e p95 geral −44,4%, mas a mediana subiu 58%: as rotas pesadas ficaram mais rápidas e as leves, mais lentas sob carga. Hipótese: fila no pool de 10 conexões |
 | 04 | Índice de expressão em `clientes(lower(email))` | [pesquisa.md](pesquisa.md): O5 | Aplicada e medida | 8,23 · 7.431 ms | 8,70 · 7.470 ms | [04-indice-email-medianas.md](analise/saidas/04-indice-email-medianas.md) | Consulta de 40,7 ms para 1,4 ms e p95 da rota −23,8%. No geral, ganho pequeno (vazão +5,7%, mediana −15,3%, p95 igual), dentro da variação entre execuções |
 | 05 | Índice `pedidos(status, criado_em DESC, id DESC)`, mantendo a paginação por OFFSET | [pesquisa.md](pesquisa.md): O3, O4, O6, M1 | Aplicada e medida | 8,70 · 7.470 ms | 15,68 · 3.596 ms | [05-indice-status-medianas.md](analise/saidas/05-indice-status-medianas.md) | Página 500 de 318,6 ms para 10,8 ms, sem ordenação em disco. Vazão +80,3%, p95 geral −51,9%, mediana −42,7%. Todas as rotas melhoraram, menos `top-produtos`, que agora é o gargalo |
+| 06 | Índice de expressão em `pedidos((criado_em::date))`, sem mudar a consulta | [pesquisa.md](pesquisa.md): O5 | Aplicada e medida | 15,68 · 3.596 ms | 17,80 · 3.906 ms | [06-indice-data-medianas.md](analise/saidas/06-indice-data-medianas.md) | Consulta de 361 ms para 15 a 37 ms, mas p95 da rota só −7,3%. Vazão +13,5% e mediana −13,1%, p95 geral praticamente igual. As faixas das execuções se sobrepõem, então o ganho geral é moderado e incerto |
 
 ## 01. Índices nas chaves estrangeiras
 
@@ -224,3 +225,40 @@ O tempo da página 1000 é quase o dobro da página 500, porque o índice ainda 
 - **A CPU do banco subiu para 97,6%,** mas agora fazendo quase o dobro de requisições.
 - **O novo gargalo é `top-produtos`**, a única rota cujo p95 não caiu (22,7 s). Ela agrega todos os itens a cada chamada, e é o experimento 07.
 - **Contra a linha de base,** os cinco experimentos somados levam a vazão de 2,96 para 15,68 req/s (+430%), o p95 geral de 22.484 para 3.596 ms (−84,0%) e a mediana de 1.400 para 684 ms (−51,1%) ([arquivo](analise/saidas/05-indice-status-vs-linha-de-base-medianas.md)).
+
+## 06. Índice para o relatório de vendas por dia
+
+- **Hipótese** ([pesquisa.md](pesquisa.md), plano de experimentos): um índice que atenda ao filtro por data deve reduzir o p95 de `vendas-por-dia`, porque o banco passa a ler só o período pedido.
+- **Antes:** o experimento 05 (`05-indice-status`).
+- **Escolha da mudança:** a primeira opção da pesquisa juntava três coisas: trocar o filtro por um intervalo, criar um índice em `criado_em` e deixar de buscar `observacoes`. Para manter uma mudança por commit, usei a alternativa que a própria pesquisa lista: **um índice sobre a mesma expressão que a consulta já usa**, `criado_em::date` (O5). Isso não exige mudar o código, e o risco ao contrato é zero. Deixar de buscar `observacoes` e somar por dia no banco ficam como candidatos a experimentos próprios.
+- **Teste prévio:** antes do commit, criei o índice dentro de uma transação desfeita com `ROLLBACK`, no banco do experimento 05. Conferi duas coisas: a conversão `timestamp -> date` é imutável (`provolatile = i`), requisito para entrar num índice; e o planejador passa a usar o índice.
+- **Mudança:** [`banco/06-indice-pedidos-data.sql`](banco/06-indice-pedidos-data.sql), commit `31a5875`. O banco foi recriado do zero.
+- **Contrato:** mantido, com 42 de 42 respostas iguais, nas 3 medições, inclusive os 7 casos de vendas por dia (fim do ano, ano bissexto e datas inválidas).
+
+**Efeito no banco** ([evidências](analise/saidas/06-indice-data-evidencias.txt), mesma consulta e período do diagnóstico, de 2024-06-01 a 2024-06-07):
+
+| Consulta | Antes ([04f](diagnostico/saidas/04f-explain-vendas-por-dia.txt)) | Depois |
+| --- | --- | --- |
+| Pedidos do período com seus itens | Parallel Seq Scan nos 500 mil pedidos e nos 1,5 milhão de itens, com Hash Join, 361 ms | Bitmap Index Scan em `pedidos_criado_em_data_idx` e Nested Loop no índice de itens do experimento 01: 36,9 ms na 1ª execução e 15,0 ms com os dados em memória |
+
+**Custo:** o índice ocupa 3,5 MB, e o banco foi de 353 MB para 357 MB.
+
+**Carga** (mediana de 3, [arquivo completo](analise/saidas/06-indice-data-medianas.md)):
+
+| Métrica | 05-indice-status | 06-indice-data | Variação |
+| --- | ---: | ---: | ---: |
+| Requisições/s | 15,68 | 17,80 | +13,5% |
+| Mediana geral | 684 ms | 595 ms | −13,1% |
+| p95 geral | 3.596 ms | 3.906 ms | +8,6% |
+| p95 `vendas-por-dia` | 6.602 ms | 6.120 ms | −7,3% |
+| p95 `top-produtos` | 22.654 ms | 16.914 ms | −25,3% |
+| p95 `pedidos-por-status` | 3.995 ms | 6.403 ms | +60,3% |
+| CPU média do banco (100% = 1 CPU) | 97,6% | 96,8% | −0,8% |
+| Erros | 0% | 0% | - |
+
+**Conclusão:**
+
+- **A consulta melhorou muito, mas a rota melhorou pouco.** O banco ficou de 10 a 24 vezes mais rápido nessa consulta, e mesmo assim o p95 de `vendas-por-dia` caiu só 7,3%. Hipótese: o que resta é **espera** (fila no pool e CPU do banco ocupada) e o trabalho de mandar as cerca de 13 mil linhas para a API, onde são somadas em JavaScript. Dessas linhas, uns 3,4 MB são de `observacoes`, coluna que a API nem usa ([diagnóstico 04f](diagnostico/saidas/04f-explain-vendas-por-dia.txt)). Isso aponta para os próximos candidatos: buscar só as colunas usadas e somar no banco.
+- **O ganho geral é moderado e incerto.** As requisições/s das execuções ficaram entre 15,67 e 18,05, contra 14,25 a 16,73 no experimento 05. O p95 geral ficou entre 3.862 e 4.242 ms, contra 3.383 a 4.160 ms. As faixas se sobrepõem.
+- **O p95 de `pedidos-por-status` piorou de forma consistente:** de 3,7 a 5,0 s no experimento 05 para 6,1 a 7,2 s aqui, nas três execuções. O índice novo **não mudou o plano** dessa rota. Conferi com `EXPLAIN ANALYZE` depois das medições ([plano](analise/saidas/06-indice-data-plano-pedidos-por-status.txt)), e ela continua usando o índice do experimento 05: página 500 em 6,5 ms e contagem em 22,6 ms, sem carga. Hipótese, ainda não verificada: com mais vazão, chegam mais requisições, e a **contagem** de cada uma, que percorre cerca de 300 mil entradas do índice, passou a ser uma das consultas mais caras que sobraram, disputando a CPU com `top-produtos`. A contagem por status pré-calculada (P4 na pesquisa) é a alternativa para isso.
+- **Contra a linha de base,** os seis experimentos somados levam a vazão de 2,96 para 17,80 req/s (+501%), o p95 geral de 22.484 para 3.906 ms (−82,6%) e a mediana de 1.400 para 595 ms (−57,5%) ([arquivo](analise/saidas/06-indice-data-vs-linha-de-base-medianas.md)).

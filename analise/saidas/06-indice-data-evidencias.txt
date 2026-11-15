@@ -1,0 +1,83 @@
+# Experimento 06: evidências depois do índice em criado_em::date
+# gerado por analise/evidencias-06-indice-data.sh em 2026-11-15 11:29:09 -0300, commit a39862a
+
+## A conversão timestamp -> date é imutável (provolatile = i), requisito para índice de expressão
+ proname | provolatile 
+---------+-------------
+ date    | i
+(1 row)
+
+
+## Índices da tabela pedidos e o espaço que ocupam
+             indice              | tamanho |  bytes   
+---------------------------------+---------+----------
+ pedidos_pkey                    | 11 MB   | 11255808
+ pedidos_cliente_id_idx          | 5720 kB |  5857280
+ pedidos_status_criado_em_id_idx | 21 MB   | 22118400
+ pedidos_criado_em_data_idx      | 3552 kB |  3637248
+(4 rows)
+
+ tamanho_do_banco 
+------------------
+ 357 MB
+(1 row)
+
+
+## GET /relatorios/vendas-por-dia?inicio=2024-06-01&fim=2024-06-07, 1ª execução (antes: diagnostico/saidas/04f-explain-vendas-por-dia.txt)
+SELECT p.id AS pedido_id, p.criado_em, p.observacoes, i.quantidade, i.preco_unitario_centavos
+     FROM pedidos p JOIN itens_pedido i ON i.pedido_id = p.id
+    WHERE p.criado_em::date BETWEEN '2024-06-01' AND '2024-06-07' AND p.status <> 'cancelado';
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather  (cost=1038.41..17990.67 rows=6756 width=297) (actual time=2.437..35.878 rows=12922 loops=1)
+   Workers Planned: 1
+   Workers Launched: 1
+   Buffers: shared hit=16777 read=1524
+   ->  Nested Loop  (cost=38.41..16315.07 rows=3974 width=297) (actual time=1.065..29.655 rows=6461 loops=2)
+         Buffers: shared hit=16777 read=1524
+         ->  Parallel Bitmap Heap Scan on pedidos p  (cost=37.99..7125.70 rows=1325 width=289) (actual time=1.031..19.338 rows=2155 loops=2)
+               Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+               Filter: (status <> 'cancelado'::text)
+               Rows Removed by Filter: 238
+               Heap Blocks: exact=535
+               Buffers: shared hit=12 read=988
+               ->  Bitmap Index Scan on pedidos_criado_em_data_idx  (cost=0.00..37.42 rows=2500 width=0) (actual time=1.833..1.833 rows=4786 loops=1)
+                     Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     Buffers: shared hit=2 read=5
+         ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.90 rows=4 width=12) (actual time=0.003..0.004 rows=3 loops=4310)
+               Index Cond: (pedido_id = p.id)
+               Buffers: shared hit=16765 read=536
+ Planning:
+   Buffers: shared hit=321 read=10
+ Planning Time: 3.838 ms
+ Execution Time: 36.874 ms
+(22 rows)
+
+
+## A mesma consulta, 2ª execução (dados já em memória)
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather  (cost=1038.41..17990.67 rows=6756 width=297) (actual time=0.873..14.500 rows=12922 loops=1)
+   Workers Planned: 1
+   Workers Launched: 1
+   Buffers: shared hit=18301
+   ->  Nested Loop  (cost=38.41..16315.07 rows=3974 width=297) (actual time=0.329..8.027 rows=6461 loops=2)
+         Buffers: shared hit=18301
+         ->  Parallel Bitmap Heap Scan on pedidos p  (cost=37.99..7125.70 rows=1325 width=289) (actual time=0.311..1.677 rows=2155 loops=2)
+               Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+               Filter: (status <> 'cancelado'::text)
+               Rows Removed by Filter: 238
+               Heap Blocks: exact=689
+               Buffers: shared hit=1000
+               ->  Bitmap Index Scan on pedidos_criado_em_data_idx  (cost=0.00..37.42 rows=2500 width=0) (actual time=0.503..0.503 rows=4786 loops=1)
+                     Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     Buffers: shared hit=7
+         ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.90 rows=4 width=12) (actual time=0.002..0.002 rows=3 loops=4310)
+               Index Cond: (pedido_id = p.id)
+               Buffers: shared hit=17301
+ Planning:
+   Buffers: shared hit=331
+ Planning Time: 0.714 ms
+ Execution Time: 14.965 ms
+(22 rows)
+

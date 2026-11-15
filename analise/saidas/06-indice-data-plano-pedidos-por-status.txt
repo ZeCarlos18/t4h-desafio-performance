@@ -1,0 +1,27 @@
+# Experimento 06: o plano de GET /pedidos?status=pago&pagina=500 depois do índice em criado_em::date
+# gerado em 2026-11-15 11:30:24 -0300, commit a39862a, com o comando abaixo (só lê)
+# docker compose exec -T banco psql -U loja -d loja -X -c 'EXPLAIN (ANALYZE) <consulta>'
+
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=11306.94..11306.95 rows=1 width=8) (actual time=20.003..22.566 rows=1 loops=1)
+   ->  Gather  (cost=11306.73..11306.94 rows=2 width=8) (actual time=19.884..22.557 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         ->  Partial Aggregate  (cost=10306.73..10306.74 rows=1 width=8) (actual time=17.626..17.627 rows=1 loops=3)
+               ->  Parallel Index Only Scan using pedidos_status_criado_em_id_idx on pedidos  (cost=0.42..9994.05 rows=125070 width=0) (actual time=0.040..14.052 rows=100000 loops=3)
+                     Index Cond: (status = 'pago'::text)
+                     Heap Fetches: 28
+ Planning Time: 0.502 ms
+ Execution Time: 22.632 ms
+(10 rows)
+
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=2913.43..2919.26 rows=20 width=299) (actual time=6.442..6.451 rows=20 loops=1)
+   ->  Index Scan using pedidos_status_criado_em_id_idx on pedidos  (cost=0.42..87614.39 rows=300167 width=299) (actual time=0.029..6.235 rows=10000 loops=1)
+         Index Cond: (status = 'pago'::text)
+ Planning Time: 0.383 ms
+ Execution Time: 6.472 ms
+(5 rows)
+
