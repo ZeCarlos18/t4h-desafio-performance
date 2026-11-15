@@ -1,0 +1,17 @@
+# 03-pool-conexoes: conexões abertas por requisição, sem carga
+# gerado por analise/conexoes-por-requisicao.sh em 2026-11-15 10:33:30 -0300, commit 3cf6528
+
+Método: diferença do contador sessions de pg_stat_database antes e depois de 10 requisições, dividida por 10.
+O contador também conta a própria leitura (1 sessão) e o healthcheck do compose (pg_isready a cada 5 s),
+então o valor por requisição pode passar um pouco do real. A linha 'controle' mostra esse ruído sem nenhuma requisição.
+Antes da primeira mudança: diagnostico/saidas/05-conexoes-por-requisicao.txt.
+
+requisicao                                                       http tempo_medio_s    bytes sessoes_total sessoes_por_requisicao
+controle: 10 s sem requisição                                     -            -        -             3                    -
+GET /clientes/12345                                               200       0.0024      125             3                  0.3
+GET /clientes?email=cliente12345@exemplo.com                      200       0.0368      127             1                  0.1
+GET /clientes/12345/pedidos                                       200       0.0037     3365             1                  0.1
+GET /pedidos?status=pago&pagina=500                               200       0.3622     1814             2                  0.2
+GET /produtos/busca?q=cadeira                                     200       0.0146     1891             2                  0.2
+GET /relatorios/vendas-por-dia?inicio=2024-06-01&fim=2024-06-07    200       0.2248      540             2                  0.2
+GET /relatorios/top-produtos?limite=10                            200       1.1933     1257             3                  0.3

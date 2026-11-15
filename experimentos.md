@@ -17,6 +17,7 @@ O **antes** de cada linha é a mudança anterior; o da primeira é a linha de ba
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 01 | Índices B-tree em `itens_pedido(pedido_id)` e `pedidos(cliente_id)` | [pesquisa.md](pesquisa.md): O1, A1, A3 | Aplicada e medida | 2,96 · 22.484 ms | 5,57 · 10.906 ms | [01-indices-fk-medianas.md](analise/saidas/01-indices-fk-medianas.md) | Vazão +88%, p95 geral −51%. O banco continua com cerca de 97% de 1 CPU, então o gargalo mudou de lugar |
 | 02 | Fim do N+1 em `pedidos-do-cliente`: itens de todos os pedidos numa consulta, com JOIN em produtos | [pesquisa.md](pesquisa.md): A2, A3 | Aplicada e medida | 5,57 · 10.906 ms | 7,05 · 13.370 ms | [02-fim-n-mais-1-medianas.md](analise/saidas/02-fim-n-mais-1-medianas.md) | p95 da rota −81% e conexões por requisição de 32,3 para 3,1. Vazão +26,5%, mas o p95 geral subiu 22,6%, porque o tempo liberado virou mais requisições nas rotas pesadas (modelo fechado, O17) |
+| 03 | `pg.Pool` na API (tamanho padrão, `max` = 10) no lugar de uma conexão nova por consulta | [pesquisa.md](pesquisa.md): O2, O12, O13 | Aplicada e medida | 7,05 · 13.370 ms | 8,23 · 7.431 ms | [03-pool-conexoes-medianas.md](analise/saidas/03-pool-conexoes-medianas.md) | Vazão +16,7% e p95 geral −44,4%, mas a mediana subiu 58%: as rotas pesadas ficaram mais rápidas e as leves, mais lentas sob carga. Hipótese: fila no pool de 10 conexões |
 
 ## 01. Índices nas chaves estrangeiras
 
@@ -95,3 +96,50 @@ O **antes** de cada linha é a mudança anterior; o da primeira é a linha de ba
   Elas disputam a mesma CPU do banco e formam a cauda do p95. A vazão subiu 26,5%, e a CPU do banco caiu de 96,7% para 90,8% mesmo atendendo mais requisições, porque abrir conexão custa um processo novo no servidor (O2).
 - **O gargalo agora são as consultas pesadas:** `top-produtos`, `vendas-por-dia` e a paginação de `pedidos-por-status`, que são os experimentos 05 a 07. As conexões novas das outras rotas são o experimento 03.
 - **Contra a linha de base,** os dois experimentos somados levam a vazão de 2,96 para 7,05 req/s (+138%) e o p95 geral de 22.484 para 13.370 ms (−40,5%) ([arquivo](analise/saidas/02-fim-n-mais-1-vs-linha-de-base-medianas.md)).
+
+## 03. Pool de conexões na API
+
+- **Hipótese** ([pesquisa.md](pesquisa.md), plano de experimentos): usar um `pg.Pool` deve aumentar as requisições/s em todas as rotas, porque cada consulta deixa de pagar uma conexão nova e um processo novo no PostgreSQL (O2). O diagnóstico mediu 2,7 ms só para conectar ([06](diagnostico/saidas/06-custo-de-conexao-pgbench.txt)).
+- **Antes:** o experimento 02 (`02-fim-n-mais-1`).
+- **Mudança:** [`api/src/db.js`](api/src/db.js), commit `8c9d7e0`. Um `pg.Pool` para a aplicação inteira, com o tamanho padrão (`max` = 10) e o listener de `error` que a documentação recomenda (O12, O13). O tamanho do pool não foi ajustado, para mudar uma coisa só. A aplicação não usa transações, o único caso em que a documentação desaconselha `pool.query`.
+- **Contrato:** mantido, com 42 de 42 respostas iguais, nas 3 medições.
+
+**Sem carga** ([depois](analise/saidas/03-pool-conexoes-conexoes.txt), [antes](analise/saidas/02-fim-n-mais-1-conexoes.txt); 10 requisições seguidas de cada rota): as conexões novas por requisição caíram para 0,1 a 0,3, que é o ruído do próprio contador e do healthcheck, porque as conexões passaram a ser reaproveitadas.
+
+| Rota (sem carga) | Tempo médio antes | Tempo médio depois |
+| --- | ---: | ---: |
+| `GET /clientes/12345` | 7,4 ms | 2,4 ms |
+| `GET /clientes/12345/pedidos` | 21,8 ms | 3,7 ms |
+| `GET /produtos/busca?q=cadeira` | 21,8 ms | 14,6 ms |
+
+**Carga** (mediana de 3, [arquivo completo](analise/saidas/03-pool-conexoes-medianas.md)):
+
+| Métrica | 02-fim-n-mais-1 | 03-pool-conexoes | Variação |
+| --- | ---: | ---: | ---: |
+| Requisições/s | 7,05 | 8,23 | +16,7% |
+| p95 geral | 13.370 ms | 7.431 ms | −44,4% |
+| Mediana geral | 893 ms | 1.411 ms | +58,0% |
+| Erros | 0% | 0% | - |
+| CPU média do banco (100% = 1 CPU) | 90,8% | 91,6% | +0,9% |
+| Memória média da API | 102 MiB | 88,5 MiB | −13,5% |
+
+**Por rota, o efeito se dividiu em dois grupos:**
+
+| Grupo | Rota | p95 (02 → 03) |
+| --- | --- | --- |
+| Pesadas: melhoraram | `top-produtos` | −50,7% |
+| | `vendas-por-dia` | −50,1% |
+| | `pedidos-por-status` | −35,1% |
+| Leves: pioraram | `cliente` | +214% |
+| | `pedidos-do-cliente` | +150% |
+| | `busca-produtos` | +37,6% |
+
+**Conclusão:**
+
+- **A hipótese se confirmou em parte.** Sem carga, todas as rotas ficaram mais rápidas. Sob carga, a vazão subiu 16,7% e o p95 geral caiu 44,4%, mas a mediana piorou 58%.
+- **Hipótese para a divisão, ainda não verificada:** o pool limita o banco a 10 consultas ao mesmo tempo, e os 20 usuários virtuais disputam essas 10 conexões.
+  - **Antes,** cada consulta tinha a sua conexão, então até 20 processos dividiam 1 CPU, e uma consulta leve rodava intercalada com as pesadas.
+  - **Agora,** com menos consultas simultâneas, as pesadas terminam mais rápido, por disputarem a CPU com menos processos. Mas uma requisição leve que chega com as 10 conexões ocupadas **espera na fila do pool**, dentro da API, até uma consulta pesada liberar a conexão.
+  - **Para testar,** seria preciso medir a fila do pool (`pool.waitingCount`, O13) durante a carga e variar o `max`. Isso fica como teste futuro ou como experimento próprio.
+- **A mudança fica.** Ela melhorou as duas métricas principais da comparação, vazão e p95, sem custo de recurso: a memória da API caiu e a CPU do banco ficou igual. A mediana pior é o custo, e o experimento confirma que **o limite agora são as consultas pesadas**, que ocupam as conexões. Os experimentos 05 a 07 atacam justamente essas consultas.
+- **Contra a linha de base,** os três experimentos somados levam a vazão de 2,96 para 8,23 req/s (+178%) e o p95 geral de 22.484 para 7.431 ms (−66,9%). A mediana ficou praticamente igual, de 1.400 para 1.411 ms ([arquivo](analise/saidas/03-pool-conexoes-vs-linha-de-base-medianas.md)).
