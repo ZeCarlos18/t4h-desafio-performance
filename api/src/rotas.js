@@ -71,31 +71,44 @@ rotas.get('/clientes/:id/pedidos', assincrono(async (req, res) => {
     [id],
   );
 
-  const resposta = [];
-  for (const pedido of pedidos) {
-    const itens = await consultar('SELECT * FROM itens_pedido WHERE pedido_id = $1 ORDER BY id', [pedido.id]);
+  // Uma consulta para os itens de todos os pedidos, já com o nome do produto,
+  // em vez de uma por pedido e outra por item (N+1). A ordem por pedido_id, id
+  // mantém os itens de cada pedido na mesma ordem de antes (ORDER BY id).
+  const itens = pedidos.length === 0 ? [] : await consultar(
+    `SELECT i.pedido_id, i.produto_id, pr.nome AS produto_nome, i.quantidade, i.preco_unitario_centavos
+       FROM itens_pedido i
+       JOIN produtos pr ON pr.id = i.produto_id
+      WHERE i.pedido_id = ANY($1::integer[])
+      ORDER BY i.pedido_id, i.id`,
+    [pedidos.map((pedido) => pedido.id)],
+  );
 
-    const itensFormatados = [];
+  const itensPorPedido = new Map();
+  for (const item of itens) {
+    if (!itensPorPedido.has(item.pedido_id)) itensPorPedido.set(item.pedido_id, []);
+    itensPorPedido.get(item.pedido_id).push(item);
+  }
+
+  const resposta = pedidos.map((pedido) => {
+    const itensDoPedido = itensPorPedido.get(pedido.id) || [];
     let total = 0;
-    for (const item of itens) {
-      const [produto] = await consultar('SELECT * FROM produtos WHERE id = $1', [item.produto_id]);
-      itensFormatados.push({
+    const itensFormatados = itensDoPedido.map((item) => {
+      total += item.quantidade * item.preco_unitario_centavos;
+      return {
         produto_id: item.produto_id,
-        produto_nome: produto.nome,
+        produto_nome: item.produto_nome,
         quantidade: item.quantidade,
         preco_unitario_centavos: item.preco_unitario_centavos,
-      });
-      total += item.quantidade * item.preco_unitario_centavos;
-    }
-
-    resposta.push({
+      };
+    });
+    return {
       id: pedido.id,
       status: pedido.status,
       criado_em: pedido.criado_em,
       total_centavos: total,
       itens: itensFormatados,
-    });
-  }
+    };
+  });
 
   res.json(resposta);
 }));
