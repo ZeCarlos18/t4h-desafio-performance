@@ -1,0 +1,17 @@
+# 02-fim-n-mais-1: conexões abertas por requisição, sem carga
+# gerado por analise/conexoes-por-requisicao.sh em 2026-11-15 09:26:42 -0300, commit 1035172
+
+Método: diferença do contador sessions de pg_stat_database antes e depois de 10 requisições, dividida por 10.
+O contador também conta a própria leitura (1 sessão) e o healthcheck do compose (pg_isready a cada 5 s),
+então o valor por requisição pode passar um pouco do real. A linha 'controle' mostra esse ruído sem nenhuma requisição.
+Antes da primeira mudança: diagnostico/saidas/05-conexoes-por-requisicao.txt.
+
+requisicao                                                       http tempo_medio_s    bytes sessoes_total sessoes_por_requisicao
+controle: 10 s sem requisição                                     -            -        -             3                    -
+GET /clientes/12345                                               200       0.0074      125            12                  1.2
+GET /clientes?email=cliente12345@exemplo.com                      200       0.0454      127            11                  1.1
+GET /clientes/12345/pedidos                                       200       0.0218     3365            31                  3.1
+GET /pedidos?status=pago&pagina=500                               200       0.4093     1814            22                  2.2
+GET /produtos/busca?q=cadeira                                     200       0.0218     1891            12                  1.2
+GET /relatorios/vendas-por-dia?inicio=2024-06-01&fim=2024-06-07    200       0.2422      540            12                  1.2
+GET /relatorios/top-produtos?limite=10                            200       1.2416     1257            14                  1.4

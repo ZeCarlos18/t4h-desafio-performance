@@ -26,6 +26,7 @@ Para cada problema do [diagnóstico](diagnostico/README.md): o que a documentaç
 | O14 | [Express, Performance best practices](https://expressjs.com/en/advanced/best-practice-performance.html) | `console.log` é síncrono para terminal ou arquivo, e não é indicado em produção a não ser que a saída vá para outro programa. Compressão gzip |
 | O15 | [Node.js 20, process: A note on process I/O](https://nodejs.org/docs/latest-v20.x/api/process.html) | No Linux, `stdout` em *pipe* é **assíncrono**. Em arquivo ou terminal, é síncrono |
 | O16 | [PgBouncer, Configuration](https://www.pgbouncer.org/config.html) | `pool_mode`: *session* (padrão), *transaction* e *statement*, que define quando uma conexão do servidor volta para o pool |
+| O17 | [Grafana k6, Open and closed models](https://grafana.com/docs/k6/latest/using-k6/scenarios/concepts/open-vs-closed/) | No modelo fechado, que é o do `medir.sh` (número fixo de usuários virtuais), cada iteração só começa quando a anterior termina, então respostas mais rápidas fazem chegar mais requisições. Fonte acrescentada no experimento 02 |
 
 ### Acadêmicas ou técnicas primárias
 
