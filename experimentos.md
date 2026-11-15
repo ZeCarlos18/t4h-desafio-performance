@@ -21,6 +21,7 @@ O **antes** de cada linha é a mudança anterior; o da primeira é a linha de ba
 | 04 | Índice de expressão em `clientes(lower(email))` | [pesquisa.md](pesquisa.md): O5 | Aplicada e medida | 8,23 · 7.431 ms | 8,70 · 7.470 ms | [04-indice-email-medianas.md](analise/saidas/04-indice-email-medianas.md) | Consulta de 40,7 ms para 1,4 ms e p95 da rota −23,8%. No geral, ganho pequeno (vazão +5,7%, mediana −15,3%, p95 igual), dentro da variação entre execuções |
 | 05 | Índice `pedidos(status, criado_em DESC, id DESC)`, mantendo a paginação por OFFSET | [pesquisa.md](pesquisa.md): O3, O4, O6, M1 | Aplicada e medida | 8,70 · 7.470 ms | 15,68 · 3.596 ms | [05-indice-status-medianas.md](analise/saidas/05-indice-status-medianas.md) | Página 500 de 318,6 ms para 10,8 ms, sem ordenação em disco. Vazão +80,3%, p95 geral −51,9%, mediana −42,7%. Todas as rotas melhoraram, menos `top-produtos`, que agora é o gargalo |
 | 06 | Índice de expressão em `pedidos((criado_em::date))`, sem mudar a consulta | [pesquisa.md](pesquisa.md): O5 | Aplicada e medida | 15,68 · 3.596 ms | 17,80 · 3.906 ms | [06-indice-data-medianas.md](analise/saidas/06-indice-data-medianas.md) | Consulta de 361 ms para 15 a 37 ms, mas p95 da rota só −7,3%. Vazão +13,5% e mediana −13,1%, p95 geral praticamente igual. As faixas das execuções se sobrepõem, então o ganho geral é moderado e incerto |
+| 07 | Receita por produto pré-calculada em view materializada (`receita_por_produto`), lida pela rota `top-produtos` | [pesquisa.md](pesquisa.md): O7, O4, A3 | Aplicada e medida | 17,80 · 3.906 ms | 44,70 · 993 ms | [07-view-top-produtos-medianas.md](analise/saidas/07-view-top-produtos-medianas.md) | Consulta de 1.506 ms para 0,04 ms. Vazão +151%, p95 geral −74,6%, todas as rotas melhoraram. A CPU do banco caiu de 96,8% para 63,5%, e a API chegou ao limite de 0,5 CPU: o gargalo mudou para a API. Custo: atualizar a view leva 1,3 s |
 
 ## 01. Índices nas chaves estrangeiras
 
@@ -262,3 +263,47 @@ O tempo da página 1000 é quase o dobro da página 500, porque o índice ainda 
 - **O ganho geral é moderado e incerto.** As requisições/s das execuções ficaram entre 15,67 e 18,05, contra 14,25 a 16,73 no experimento 05. O p95 geral ficou entre 3.862 e 4.242 ms, contra 3.383 a 4.160 ms. As faixas se sobrepõem.
 - **O p95 de `pedidos-por-status` piorou de forma consistente:** de 3,7 a 5,0 s no experimento 05 para 6,1 a 7,2 s aqui, nas três execuções. O índice novo **não mudou o plano** dessa rota. Conferi com `EXPLAIN ANALYZE` depois das medições ([plano](analise/saidas/06-indice-data-plano-pedidos-por-status.txt)), e ela continua usando o índice do experimento 05: página 500 em 6,5 ms e contagem em 22,6 ms, sem carga. Hipótese, ainda não verificada: com mais vazão, chegam mais requisições, e a **contagem** de cada uma, que percorre cerca de 300 mil entradas do índice, passou a ser uma das consultas mais caras que sobraram, disputando a CPU com `top-produtos`. A contagem por status pré-calculada (P4 na pesquisa) é a alternativa para isso.
 - **Contra a linha de base,** os seis experimentos somados levam a vazão de 2,96 para 17,80 req/s (+501%), o p95 geral de 22.484 para 3.906 ms (−82,6%) e a mediana de 1.400 para 595 ms (−57,5%) ([arquivo](analise/saidas/06-indice-data-vs-linha-de-base-medianas.md)).
+
+## 07. Produtos mais vendidos pré-calculados
+
+- **Hipótese** ([pesquisa.md](pesquisa.md), plano de experimentos): guardar a receita por produto numa view materializada deve reduzir o p95 de `top-produtos` e a CPU do banco, porque o cálculo deixa de ser refeito a cada chamada.
+- **Antes:** o experimento 06 (`06-indice-data`).
+- **Mudança:** commit `5b5bfff`, com duas partes que só funcionam juntas.
+  - [`banco/07-receita-por-produto.sql`](banco/07-receita-por-produto.sql) cria a view `receita_por_produto` com **a mesma consulta** que a rota fazia (mesmos filtros, junções e somas, e portanto os mesmos tipos). Também cria um índice em `(receita_centavos DESC, id)`, a ordem da rota, para o `LIMIT` ler só as primeiras linhas (O4).
+  - [`api/src/rotas.js`](api/src/rotas.js) passa a ler da view, com o mesmo `ORDER BY` e o mesmo desempate.
+  - O banco foi recriado do zero.
+- **Contrato:** mantido, com 42 de 42 respostas iguais, nas 3 medições, inclusive `limite` 5, 10 e 50 e os limites inválidos.
+
+**Conferência do conteúdo** ([evidências](analise/saidas/07-view-top-produtos-evidencias.txt)): comparei a view com a consulta antiga, refeita na hora, usando `EXCEPT` nos dois sentidos. Não há nenhuma linha só na antiga e nenhuma só na view, nas 19.206 linhas: produtos sem venda ficam de fora nas duas, como antes.
+
+**Efeito no banco:**
+
+| Consulta | Antes ([04g](diagnostico/saidas/04g-explain-top-produtos.txt)) | Depois |
+| --- | --- | --- |
+| `top-produtos?limite=10` | Junta 1,5 milhão de itens com pedidos e produtos e agrupa tudo: 1.506 ms | Index Scan nas 10 primeiras linhas da view: 0,041 ms |
+
+**Custo:**
+
+- **Disco:** a view ocupa 1,7 MB e o índice dela 0,6 MB. O banco foi de 357 MB para 359 MB.
+- **Dado parado no tempo:** a view só muda com `REFRESH MATERIALIZED VIEW` (O7), e **um refresh levou 1,33 s**. Medi isso numa transação desfeita, para não alterar o banco. Nesta aplicação nenhuma rota grava dados, então a resposta é idêntica. Numa loja que grava pedidos, seria preciso escolher de quanto em quanto tempo atualizar e aceitar um relatório alguns minutos atrasado. Essa decisão é de negócio, não de código.
+
+**Carga** (mediana de 3, [arquivo completo](analise/saidas/07-view-top-produtos-medianas.md)):
+
+| Métrica | 06-indice-data | 07-view-top-produtos | Variação |
+| --- | ---: | ---: | ---: |
+| Requisições/s | 17,80 | 44,70 | +151,1% |
+| Mediana geral | 595 ms | 396 ms | −33,4% |
+| p95 geral | 3.906 ms | 993 ms | −74,6% |
+| p95 `top-produtos` | 16.914 ms | 641 ms | −96,2% |
+| CPU média do banco (100% = 1 CPU) | 96,8% | 63,5% | −34,4% |
+| CPU média da API (limite: 0,5 CPU = 50%) | 18,6% | 42,6% | +129,0% |
+| CPU máxima da API | 51,1% | 51,0% | - |
+| Memória média do banco | 417 MiB | 469 MiB | +12,6% |
+| Erros | 0% | 0% | - |
+
+**Conclusão:**
+
+- **A hipótese se confirmou, e foi o maior salto até aqui.** As três execuções ficaram entre 37,52 e 46,06 req/s, contra 15,67 a 18,05 no experimento 06. **Todas as rotas melhoraram**, de 41% a 96% no p95: uma única consulta de 1,5 s por chamada ocupava a CPU do banco e uma conexão do pool, e as outras ficavam na fila atrás dela.
+- **O gargalo mudou de lugar: saiu do banco e foi para a API.** Pela primeira vez a CPU do banco não está no teto (63,5%), enquanto a API usa em média 42,6% de um limite de 50% (0,5 CPU), com picos de 51%. Hipótese: agora a API passa a maior parte do tempo serializando JSON e escrevendo no log o corpo inteiro de cada resposta (P8), e é esse limite que segura a vazão. O experimento 09 (log sem o corpo da resposta) testa isso diretamente.
+- **Por isso, o experimento 10 (limites menores, mais barato) precisa ser repensado:** reduzir a CPU da API agora provavelmente reduziria a vazão. Já o banco ficou com folga de CPU.
+- **Contra a linha de base,** os sete experimentos somados levam a vazão de 2,96 para 44,70 req/s (+1.410%, cerca de 15 vezes), o p95 geral de 22.484 para 993 ms (−95,6%) e a mediana de 1.400 para 396 ms (−71,7%) ([arquivo](analise/saidas/07-view-top-produtos-vs-linha-de-base-medianas.md)).

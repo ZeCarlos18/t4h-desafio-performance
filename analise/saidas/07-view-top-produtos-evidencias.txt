@@ -1,0 +1,51 @@
+# Experimento 07: evidências depois da view materializada receita_por_produto
+# gerado por analise/evidencias-07-view-top-produtos.sh em 2026-11-15 11:48:47 -0300, commit 297187e
+
+## Tamanho da view, do índice dela e do banco
+               objeto               | tipo | tamanho |  bytes  
+------------------------------------+------+---------+---------
+ receita_por_produto                | m    | 1688 kB | 1728512
+ receita_por_produto_receita_id_idx | i    | 608 kB  |  622592
+(2 rows)
+
+ linhas_na_view 
+----------------
+          19206
+(1 row)
+
+ tamanho_do_banco 
+------------------
+ 359 MB
+(1 row)
+
+
+## GET /relatorios/top-produtos?limite=10: consulta nova, lendo da view
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.29..1.04 rows=10 width=57) (actual time=0.016..0.026 rows=10 loops=1)
+   Buffers: shared hit=12
+   ->  Index Scan using receita_por_produto_receita_id_idx on receita_por_produto  (cost=0.29..1436.31 rows=19206 width=57) (actual time=0.015..0.024 rows=10 loops=1)
+         Buffers: shared hit=12
+ Planning:
+   Buffers: shared hit=77
+ Planning Time: 0.249 ms
+ Execution Time: 0.041 ms
+(8 rows)
+
+
+## O mesmo resultado pela consulta antiga, para conferir que é idêntico (EXCEPT nos dois sentidos deve dar 0 linhas)
+ so_na_antiga | so_na_view 
+--------------+------------
+            0 |          0
+(1 row)
+
+
+## Custo de atualizar a view (REFRESH), o preço de guardar o resultado pronto
+## Executado dentro de uma transação desfeita (ROLLBACK), para não alterar o banco medido
+Timing is on.
+BEGIN
+Time: 0.154 ms
+REFRESH MATERIALIZED VIEW
+Time: 1332.624 ms (00:01.333)
+ROLLBACK
+Time: 0.684 ms
