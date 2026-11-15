@@ -1,0 +1,11 @@
+# 09-log-sem-corpo: log da API desde que o container subiu
+# gerado por analise/log-por-requisicao.sh em 2026-11-15 12:07:48 -0300, commit db0902d
+# container iniciado em: 2026-11-15T15:03:22.305059901Z
+
+linhas de requisição: 10279
+bytes dessas linhas:  866075
+bytes por requisição (média): 84.3
+
+Maior linha (bytes) e os primeiros 300 caracteres dela:
+  115 bytes
+  {"metodo":"GET","url":"/relatorios/vendas-por-dia?inicio=2025-06-06&fim=2025-06-12","status":200,"duracao_ms":1048}

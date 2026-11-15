@@ -22,6 +22,7 @@ O **antes** de cada linha é a mudança anterior; o da primeira é a linha de ba
 | 05 | Índice `pedidos(status, criado_em DESC, id DESC)`, mantendo a paginação por OFFSET | [pesquisa.md](pesquisa.md): O3, O4, O6, M1 | Aplicada e medida | 8,70 · 7.470 ms | 15,68 · 3.596 ms | [05-indice-status-medianas.md](analise/saidas/05-indice-status-medianas.md) | Página 500 de 318,6 ms para 10,8 ms, sem ordenação em disco. Vazão +80,3%, p95 geral −51,9%, mediana −42,7%. Todas as rotas melhoraram, menos `top-produtos`, que agora é o gargalo |
 | 06 | Índice de expressão em `pedidos((criado_em::date))`, sem mudar a consulta | [pesquisa.md](pesquisa.md): O5 | Aplicada e medida | 15,68 · 3.596 ms | 17,80 · 3.906 ms | [06-indice-data-medianas.md](analise/saidas/06-indice-data-medianas.md) | Consulta de 361 ms para 15 a 37 ms, mas p95 da rota só −7,3%. Vazão +13,5% e mediana −13,1%, p95 geral praticamente igual. As faixas das execuções se sobrepõem, então o ganho geral é moderado e incerto |
 | 07 | Receita por produto pré-calculada em view materializada (`receita_por_produto`), lida pela rota `top-produtos` | [pesquisa.md](pesquisa.md): O7, O4, A3 | Aplicada e medida | 17,80 · 3.906 ms | 44,70 · 993 ms | [07-view-top-produtos-medianas.md](analise/saidas/07-view-top-produtos-medianas.md) | Consulta de 1.506 ms para 0,04 ms. Vazão +151%, p95 geral −74,6%, todas as rotas melhoraram. A CPU do banco caiu de 96,8% para 63,5%, e a API chegou ao limite de 0,5 CPU: o gargalo mudou para a API. Custo: atualizar a view leva 1,3 s |
+| 09 | Log da API sem o corpo da resposta (só método, URL, status e duração) | [pesquisa.md](pesquisa.md): O14, O15 | Aplicada e medida (ganho de custo, sem ganho de tempo) | 44,70 · 993 ms | 46,95 · 947 ms | [09-log-sem-corpo-medianas.md](analise/saidas/09-log-sem-corpo-medianas.md) | Log de 1.226 para 84 bytes por requisição (−93%). Vazão +5% e p95 −4,7%, dentro da variação entre execuções. A CPU da API não mudou (43%), então a hipótese revisada (mais vazão) não se confirmou |
 
 ## 01. Índices nas chaves estrangeiras
 
@@ -307,3 +308,40 @@ O tempo da página 1000 é quase o dobro da página 500, porque o índice ainda 
 - **O gargalo mudou de lugar: saiu do banco e foi para a API.** Pela primeira vez a CPU do banco não está no teto (63,5%), enquanto a API usa em média 42,6% de um limite de 50% (0,5 CPU), com picos de 51%. Hipótese: agora a API passa a maior parte do tempo serializando JSON e escrevendo no log o corpo inteiro de cada resposta (P8), e é esse limite que segura a vazão. O experimento 09 (log sem o corpo da resposta) testa isso diretamente.
 - **Por isso, o experimento 10 (limites menores, mais barato) precisa ser repensado:** reduzir a CPU da API agora provavelmente reduziria a vazão. Já o banco ficou com folga de CPU.
 - **Contra a linha de base,** os sete experimentos somados levam a vazão de 2,96 para 44,70 req/s (+1.410%, cerca de 15 vezes), o p95 geral de 22.484 para 993 ms (−95,6%) e a mediana de 1.400 para 396 ms (−71,7%) ([arquivo](analise/saidas/07-view-top-produtos-vs-linha-de-base-medianas.md)).
+
+## 09. Log sem o corpo da resposta
+
+O experimento 08 (desligar a consulta paralela) foi adiado. Depois do 07, o banco ficou com folga de CPU e a API chegou ao limite, então o 09, que mexe na API, passou na frente. O **antes** deste experimento é o 07.
+
+- **Hipótese original** ([pesquisa.md](pesquisa.md)): tirar o corpo da resposta do log deve reduzir o tamanho do log sem mudar o tempo de resposta. Na pesquisa, a API usava cerca de 7% de CPU, e no Docker o `stdout` é um *pipe* assíncrono no Linux (O15).
+- **Hipótese revisada antes de medir:** depois do experimento 07, a API usa em média 42,6% de um limite de 50% (0,5 CPU). Como cada resposta era convertida em texto duas vezes (uma para o log e outra para enviar), tirar a do log **deveria aumentar a vazão**.
+- **Mudança:** [`api/src/server.js`](api/src/server.js), commit `4991641`. O log continua com método, URL, status e duração, que são o que serve para acompanhar a API; só sai o campo `resposta`. Só a API foi reconstruída, e o banco é o mesmo do experimento 07.
+- **Contrato:** mantido, com 42 de 42 respostas iguais, nas 3 medições. O log não faz parte da resposta.
+
+**Efeito no log** (mesmo script antes e depois, [`analise/log-por-requisicao.sh`](analise/log-por-requisicao.sh)):
+
+| | Antes ([07](analise/saidas/07-view-top-produtos-log.txt)) | Depois ([09](analise/saidas/09-log-sem-corpo-log.txt)) |
+| --- | ---: | ---: |
+| Requisições registradas desde que o container subiu | 9.368 | 10.279 |
+| Bytes de log por requisição (média) | 1.226,4 | 84,3 |
+| Maior linha | 6.321 bytes (`top-produtos?limite=50`) | 115 bytes |
+
+O "antes" foi medido no container do experimento 07, depois das 3 medições dele. Rodei o script a partir de uma cópia do repositório, para não criar arquivo no repositório antes do commit da mudança.
+
+**Carga** (mediana de 3, [arquivo completo](analise/saidas/09-log-sem-corpo-medianas.md)):
+
+| Métrica | 07-view-top-produtos | 09-log-sem-corpo | Variação |
+| --- | ---: | ---: | ---: |
+| Requisições/s | 44,70 | 46,95 | +5,0% |
+| Mediana geral | 396 ms | 388 ms | −2,0% |
+| p95 geral | 993 ms | 947 ms | −4,7% |
+| CPU média da API (limite: 0,5 CPU = 50%) | 42,6% | 43,0% | +0,8% |
+| CPU média do banco (100% = 1 CPU) | 63,5% | 64,6% | +1,7% |
+| Erros | 0% | 0% | - |
+
+**Conclusão:**
+
+- **O ganho é de custo, não de tempo.** O log encolheu 93%. Numa conta feita com os números medidos (46,95 req/s × 86.400 s ≈ 4,06 milhões de requisições por dia), seriam cerca de 5,0 GB de log por dia antes e 0,34 GB depois, para armazenar e para pagar, se a loja recebesse essa carga o dia todo.
+- **A hipótese revisada não se confirmou.** A vazão subiu 5%, mas as execuções ficaram entre 45,07 e 47,49 req/s, contra 37,52 a 46,06 no 07, e as faixas se sobrepõem. A CPU da API ficou igual, em 43%. Então serializar o corpo para o log não era o que ocupava a CPU da API. A hipótese original estava certa: no Linux, o `stdout` em *pipe* não bloqueia (O15), e o custo extra era pequeno.
+- **O que ocupa a CPU da API ainda não foi medido.** Candidatos: converter as respostas em JSON para enviar, o Express e a leitura das linhas que chegam do banco. Para saber, seria preciso usar um *profiler* (por exemplo, `node --cpu-prof`) durante a carga. Isso fica como teste futuro, e eu não atribuo a causa sem medir.
+- **Contra a linha de base,** a vazão vai de 2,96 para 46,95 req/s (cerca de 16 vezes), o p95 geral de 22.484 para 947 ms (−95,8%) e a mediana de 1.400 para 388 ms (−72,3%) ([arquivo](analise/saidas/09-log-sem-corpo-vs-linha-de-base-medianas.md)).

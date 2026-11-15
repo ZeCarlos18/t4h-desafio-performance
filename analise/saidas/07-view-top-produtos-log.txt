@@ -1,0 +1,11 @@
+# 07-view-top-produtos: log da API desde que o container subiu
+# gerado por analise/log-por-requisicao.sh em 2026-11-15 12:02:48 -0300, commit c9bfb65
+# container iniciado em: 2026-11-15T14:44:22.253415052Z
+
+linhas de requisição: 9368
+bytes dessas linhas:  11488925
+bytes por requisição (média): 1226.4
+
+Maior linha (bytes) e os primeiros 300 caracteres dela:
+  6321 bytes
+  {"metodo":"GET","url":"/relatorios/top-produtos?limite=50","status":200,"duracao_ms":3,"resposta":[{"produto_id":167,"nome":"Mochila Slim Modelo 167","categoria":"Acessorios","unidades":10052,"receita_centavos":4882457440},{"produto_id":43,"nome":"Teclado Premium Modelo 43","categoria":"Perifericos"
