@@ -1,0 +1,57 @@
+# Experimento 04: evidências depois do índice em lower(email)
+# gerado por analise/evidencias-04-indice-email.sh em 2026-11-15 10:48:31 -0300, commit 0092f96
+
+## Índices da tabela clientes e o espaço que ocupam
+          indice          | tamanho |  bytes  
+--------------------------+---------+---------
+ clientes_pkey            | 2208 kB | 2260992
+ clientes_lower_email_idx | 4792 kB | 4907008
+(2 rows)
+
+ tamanho_do_banco 
+------------------
+ 332 MB
+(1 row)
+
+
+## GET /clientes?email=cliente12345@exemplo.com (antes: diagnostico/saidas/04b-explain-cliente-por-email.txt)
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=956.32..957.57 rows=500 width=60) (actual time=1.037..1.038 rows=1 loops=1)
+   Sort Key: id
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=3 read=4
+   ->  Bitmap Heap Scan on clientes  (cost=16.29..933.91 rows=500 width=60) (actual time=1.015..1.016 rows=1 loops=1)
+         Recheck Cond: (lower(email) = 'cliente12345@exemplo.com'::text)
+         Heap Blocks: exact=1
+         Buffers: shared read=4
+         ->  Bitmap Index Scan on clientes_lower_email_idx  (cost=0.00..16.17 rows=500 width=0) (actual time=0.700..0.701 rows=1 loops=1)
+               Index Cond: (lower(email) = 'cliente12345@exemplo.com'::text)
+               Buffers: shared read=3
+ Planning:
+   Buffers: shared hit=100 read=4
+ Planning Time: 1.486 ms
+ Execution Time: 1.352 ms
+(15 rows)
+
+
+## A mesma busca com o e-mail em maiúsculas (o contrato testa esse caso)
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=956.32..957.57 rows=500 width=60) (actual time=0.043..0.044 rows=1 loops=1)
+   Sort Key: id
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=5 read=2
+   ->  Bitmap Heap Scan on clientes  (cost=16.29..933.91 rows=500 width=60) (actual time=0.032..0.032 rows=1 loops=1)
+         Recheck Cond: (lower(email) = 'cliente10@exemplo.com'::text)
+         Heap Blocks: exact=1
+         Buffers: shared hit=2 read=2
+         ->  Bitmap Index Scan on clientes_lower_email_idx  (cost=0.00..16.17 rows=500 width=0) (actual time=0.025..0.025 rows=1 loops=1)
+               Index Cond: (lower(email) = 'cliente10@exemplo.com'::text)
+               Buffers: shared hit=2 read=1
+ Planning:
+   Buffers: shared hit=104
+ Planning Time: 0.387 ms
+ Execution Time: 0.070 ms
+(15 rows)
+

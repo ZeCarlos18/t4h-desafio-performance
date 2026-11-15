@@ -18,6 +18,7 @@ O **antes** de cada linha é a mudança anterior; o da primeira é a linha de ba
 | 01 | Índices B-tree em `itens_pedido(pedido_id)` e `pedidos(cliente_id)` | [pesquisa.md](pesquisa.md): O1, A1, A3 | Aplicada e medida | 2,96 · 22.484 ms | 5,57 · 10.906 ms | [01-indices-fk-medianas.md](analise/saidas/01-indices-fk-medianas.md) | Vazão +88%, p95 geral −51%. O banco continua com cerca de 97% de 1 CPU, então o gargalo mudou de lugar |
 | 02 | Fim do N+1 em `pedidos-do-cliente`: itens de todos os pedidos numa consulta, com JOIN em produtos | [pesquisa.md](pesquisa.md): A2, A3 | Aplicada e medida | 5,57 · 10.906 ms | 7,05 · 13.370 ms | [02-fim-n-mais-1-medianas.md](analise/saidas/02-fim-n-mais-1-medianas.md) | p95 da rota −81% e conexões por requisição de 32,3 para 3,1. Vazão +26,5%, mas o p95 geral subiu 22,6%, porque o tempo liberado virou mais requisições nas rotas pesadas (modelo fechado, O17) |
 | 03 | `pg.Pool` na API (tamanho padrão, `max` = 10) no lugar de uma conexão nova por consulta | [pesquisa.md](pesquisa.md): O2, O12, O13 | Aplicada e medida | 7,05 · 13.370 ms | 8,23 · 7.431 ms | [03-pool-conexoes-medianas.md](analise/saidas/03-pool-conexoes-medianas.md) | Vazão +16,7% e p95 geral −44,4%, mas a mediana subiu 58%: as rotas pesadas ficaram mais rápidas e as leves, mais lentas sob carga. Hipótese: fila no pool de 10 conexões |
+| 04 | Índice de expressão em `clientes(lower(email))` | [pesquisa.md](pesquisa.md): O5 | Aplicada e medida | 8,23 · 7.431 ms | 8,70 · 7.470 ms | [04-indice-email-medianas.md](analise/saidas/04-indice-email-medianas.md) | Consulta de 40,7 ms para 1,4 ms e p95 da rota −23,8%. No geral, ganho pequeno (vazão +5,7%, mediana −15,3%, p95 igual), dentro da variação entre execuções |
 
 ## 01. Índices nas chaves estrangeiras
 
@@ -143,3 +144,41 @@ O **antes** de cada linha é a mudança anterior; o da primeira é a linha de ba
   - **Para testar,** seria preciso medir a fila do pool (`pool.waitingCount`, O13) durante a carga e variar o `max`. Isso fica como teste futuro ou como experimento próprio.
 - **A mudança fica.** Ela melhorou as duas métricas principais da comparação, vazão e p95, sem custo de recurso: a memória da API caiu e a CPU do banco ficou igual. A mediana pior é o custo, e o experimento confirma que **o limite agora são as consultas pesadas**, que ocupam as conexões. Os experimentos 05 a 07 atacam justamente essas consultas.
 - **Contra a linha de base,** os três experimentos somados levam a vazão de 2,96 para 8,23 req/s (+178%) e o p95 geral de 22.484 para 7.431 ms (−66,9%). A mediana ficou praticamente igual, de 1.400 para 1.411 ms ([arquivo](analise/saidas/03-pool-conexoes-vs-linha-de-base-medianas.md)).
+
+## 04. Índice para a busca por e-mail
+
+- **Hipótese** ([pesquisa.md](pesquisa.md), plano de experimentos): um índice sobre `lower(email)` deve reduzir o p95 de `cliente-por-email`, porque a busca deixa de ler os 100 mil clientes.
+- **Antes:** o experimento 03 (`03-pool-conexoes`).
+- **Mudança:** [`banco/04-indice-email.sql`](banco/04-indice-email.sql), commit `00bd026`. É um índice B-tree sobre a expressão `lower(email)`, exatamente a que a rota usa no `WHERE` (O5). Não é `UNIQUE`, para não mudar nenhuma regra dos dados. O banco foi recriado do zero (`docker compose down -v && docker compose up -d --build`).
+- **Contrato:** mantido, com 42 de 42 respostas iguais, nas 3 medições, inclusive nos casos com e-mail em maiúsculas.
+
+**Efeito no banco** ([evidências](analise/saidas/04-indice-email-evidencias.txt), mesma consulta e e-mail do diagnóstico):
+
+| Consulta | Antes ([04b](diagnostico/saidas/04b-explain-cliente-por-email.txt)) | Depois |
+| --- | --- | --- |
+| `lower(email) = lower('cliente12345@exemplo.com')` | Seq Scan, 99.999 linhas descartadas, 40,7 ms | Bitmap Index Scan em `clientes_lower_email_idx`, 1,35 ms |
+| A mesma busca com `CLIENTE10@EXEMPLO.COM` | - | Bitmap Index Scan, 0,07 ms |
+
+**Custo:** o índice ocupa 4,8 MB, e o banco foi de 328 MB para 332 MB.
+
+**Carga** (mediana de 3, [arquivo completo](analise/saidas/04-indice-email-medianas.md)):
+
+| Métrica | 03-pool-conexoes | 04-indice-email | Variação |
+| --- | ---: | ---: | ---: |
+| Requisições/s | 8,23 | 8,70 | +5,7% |
+| Mediana geral | 1.411 ms | 1.195 ms | −15,3% |
+| p95 geral | 7.431 ms | 7.470 ms | +0,5% |
+| p95 `cliente-por-email` | 2.099 ms | 1.600 ms | −23,8% |
+| CPU média do banco (100% = 1 CPU) | 91,6% | 88,8% | −3,0% |
+| Erros | 0% | 0% | - |
+
+**Conclusão:**
+
+- **A hipótese se confirmou na rota.** A consulta ficou cerca de 30 vezes mais rápida, de 40,7 para 1,35 ms, e o p95 de `cliente-por-email` caiu 23,8%.
+- **No geral, o ganho é pequeno, e eu o trato como incerto.** As requisições/s das três execuções foram de 8,18 a 8,42 no experimento 03 e de 8,38 a 9,18 aqui. As faixas se encostam, e o README avisa que a diferença entre execuções pode passar de 30%.
+- **A rota ainda leva 1,6 s no p95,** embora a consulta leve menos de 2 ms. Antes do índice ela custava 41 ms de CPU por requisição; agora quase nada. O que sobra é **espera**: fila no pool e CPU do banco ocupada pelas consultas pesadas (`top-produtos`, de cerca de 1,2 s cada, e `pedidos-por-status`).
+- **Observações que esta mudança não explica,** registradas para não esconder nada:
+  - A memória média da API caiu de 88,5 para 40,5 MiB, mas a mudança não toca a API, que só foi reiniciada junto com o banco.
+  - A memória máxima do banco chegou a 504 MiB, perto do limite de 512 MiB. Isso pesa no experimento 10 (limites menores).
+  - O planejador estimou 500 linhas para a busca, e veio 1. Hipótese a verificar: o `ANALYZE` do `02-dados.sql` roda antes de o índice existir, então não há estatística da expressão `lower(email)`. Mesmo assim o índice foi usado.
+- **Contra a linha de base,** os quatro experimentos somados levam a vazão de 2,96 para 8,70 req/s (+194%), o p95 geral de 22.484 para 7.470 ms (−66,8%) e a mediana de 1.400 para 1.195 ms (−14,6%) ([arquivo](analise/saidas/04-indice-email-vs-linha-de-base-medianas.md)).
