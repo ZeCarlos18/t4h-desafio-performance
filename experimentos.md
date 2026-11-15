@@ -19,6 +19,7 @@ O **antes** de cada linha é a mudança anterior; o da primeira é a linha de ba
 | 02 | Fim do N+1 em `pedidos-do-cliente`: itens de todos os pedidos numa consulta, com JOIN em produtos | [pesquisa.md](pesquisa.md): A2, A3 | Aplicada e medida | 5,57 · 10.906 ms | 7,05 · 13.370 ms | [02-fim-n-mais-1-medianas.md](analise/saidas/02-fim-n-mais-1-medianas.md) | p95 da rota −81% e conexões por requisição de 32,3 para 3,1. Vazão +26,5%, mas o p95 geral subiu 22,6%, porque o tempo liberado virou mais requisições nas rotas pesadas (modelo fechado, O17) |
 | 03 | `pg.Pool` na API (tamanho padrão, `max` = 10) no lugar de uma conexão nova por consulta | [pesquisa.md](pesquisa.md): O2, O12, O13 | Aplicada e medida | 7,05 · 13.370 ms | 8,23 · 7.431 ms | [03-pool-conexoes-medianas.md](analise/saidas/03-pool-conexoes-medianas.md) | Vazão +16,7% e p95 geral −44,4%, mas a mediana subiu 58%: as rotas pesadas ficaram mais rápidas e as leves, mais lentas sob carga. Hipótese: fila no pool de 10 conexões |
 | 04 | Índice de expressão em `clientes(lower(email))` | [pesquisa.md](pesquisa.md): O5 | Aplicada e medida | 8,23 · 7.431 ms | 8,70 · 7.470 ms | [04-indice-email-medianas.md](analise/saidas/04-indice-email-medianas.md) | Consulta de 40,7 ms para 1,4 ms e p95 da rota −23,8%. No geral, ganho pequeno (vazão +5,7%, mediana −15,3%, p95 igual), dentro da variação entre execuções |
+| 05 | Índice `pedidos(status, criado_em DESC, id DESC)`, mantendo a paginação por OFFSET | [pesquisa.md](pesquisa.md): O3, O4, O6, M1 | Aplicada e medida | 8,70 · 7.470 ms | 15,68 · 3.596 ms | [05-indice-status-medianas.md](analise/saidas/05-indice-status-medianas.md) | Página 500 de 318,6 ms para 10,8 ms, sem ordenação em disco. Vazão +80,3%, p95 geral −51,9%, mediana −42,7%. Todas as rotas melhoraram, menos `top-produtos`, que agora é o gargalo |
 
 ## 01. Índices nas chaves estrangeiras
 
@@ -182,3 +183,44 @@ O **antes** de cada linha é a mudança anterior; o da primeira é a linha de ba
   - A memória máxima do banco chegou a 504 MiB, perto do limite de 512 MiB. Isso pesa no experimento 10 (limites menores).
   - O planejador estimou 500 linhas para a busca, e veio 1. Hipótese a verificar: o `ANALYZE` do `02-dados.sql` roda antes de o índice existir, então não há estatística da expressão `lower(email)`. Mesmo assim o índice foi usado.
 - **Contra a linha de base,** os quatro experimentos somados levam a vazão de 2,96 para 8,70 req/s (+194%), o p95 geral de 22.484 para 7.470 ms (−66,8%) e a mediana de 1.400 para 1.195 ms (−14,6%) ([arquivo](analise/saidas/04-indice-email-vs-linha-de-base-medianas.md)).
+
+## 05. Índice para a listagem de pedidos por status
+
+- **Hipótese** ([pesquisa.md](pesquisa.md), plano de experimentos): um índice em `(status, criado_em DESC, id DESC)` deve reduzir o p95 de `pedidos-por-status`, porque elimina a ordenação em disco.
+- **Antes:** o experimento 04 (`04-indice-email`).
+- **Mudança:** [`banco/05-indice-pedidos-status.sql`](banco/05-indice-pedidos-status.sql), commit `5039717`. O `status` vem na frente porque é a igualdade do `WHERE` (O3), e as colunas da ordenação vêm na mesma direção do `ORDER BY` (O4). A paginação por `OFFSET` continua: a *keyset* quebraria o contrato, porque a rota recebe o número da página (M1). O banco foi recriado do zero.
+- **Escopo:** a pesquisa também sugeria buscar só as colunas usadas (sem `observacoes`). Ficou de fora para manter uma mudança por commit; é candidata a experimento próprio.
+- **Contrato:** mantido, com 42 de 42 respostas iguais, nas 3 medições, inclusive `pagina=15000`, que fica além do fim.
+
+**Efeito no banco** ([evidências](analise/saidas/05-indice-status-evidencias.txt), mesmas consultas e parâmetros do diagnóstico, com `status=pago`):
+
+| Consulta | Antes | Depois |
+| --- | --- | --- |
+| Contagem por status ([04d1](diagnostico/saidas/04d1-explain-pedidos-por-status-contagem.txt)) | Parallel Seq Scan, 92,9 ms | Parallel Index Only Scan, 33,1 ms |
+| Página 500, `OFFSET 9980` ([04d2](diagnostico/saidas/04d2-explain-pedidos-por-status-pagina.txt)) | Seq Scan e ordenação *external merge* em disco (cerca de 90 MB entre os 3 processos), 318,6 ms | Index Scan, sem ordenação, 10,8 ms |
+| Página 1000, `OFFSET 19980` (a maior que a carga sorteia) | - | Index Scan, 20,0 ms |
+
+O tempo da página 1000 é quase o dobro da página 500, porque o índice ainda percorre as linhas puladas. É o custo do `OFFSET` que a documentação descreve (O6), e ele continua crescendo com o número da página.
+
+**Custo:** o índice ocupa 21 MB, e o banco foi de 332 MB para 353 MB.
+
+**Carga** (mediana de 3, [arquivo completo](analise/saidas/05-indice-status-medianas.md)):
+
+| Métrica | 04-indice-email | 05-indice-status | Variação |
+| --- | ---: | ---: | ---: |
+| Requisições/s | 8,70 | 15,68 | +80,3% |
+| Mediana geral | 1.195 ms | 684 ms | −42,7% |
+| p95 geral | 7.470 ms | 3.596 ms | −51,9% |
+| p95 `pedidos-por-status` | 10.069 ms | 3.995 ms | −60,3% |
+| p95 `top-produtos` | 21.625 ms | 22.654 ms | +4,8% |
+| CPU média do banco (100% = 1 CPU) | 88,8% | 97,6% | +9,9% |
+| Memória média do banco | 396 MiB | 433 MiB | +9,5% |
+| Erros | 0% | 0% | - |
+
+**Conclusão:**
+
+- **A hipótese se confirmou, e o ganho foi além da rota.** A consulta da página ficou cerca de 30 vezes mais rápida e o p95 de `pedidos-por-status` caiu 60%. A vazão quase dobrou: as três execuções ficaram entre 14,25 e 16,73 req/s, contra 8,38 a 9,18 no experimento 04, então as faixas não se encostam.
+- **Todas as outras rotas melhoraram junto**, entre 18% e 46% no p95, sem nenhuma mudança nelas. Antes, cada página ordenava cerca de 300 mil pedidos e gravava dezenas de MB em disco temporário, ocupando CPU do banco e uma conexão do pool por centenas de milissegundos. Com isso liberado, as outras consultas esperam menos.
+- **A CPU do banco subiu para 97,6%,** mas agora fazendo quase o dobro de requisições.
+- **O novo gargalo é `top-produtos`**, a única rota cujo p95 não caiu (22,7 s). Ela agrega todos os itens a cada chamada, e é o experimento 07.
+- **Contra a linha de base,** os cinco experimentos somados levam a vazão de 2,96 para 15,68 req/s (+430%), o p95 geral de 22.484 para 3.596 ms (−84,0%) e a mediana de 1.400 para 684 ms (−51,1%) ([arquivo](analise/saidas/05-indice-status-vs-linha-de-base-medianas.md)).

@@ -1,0 +1,68 @@
+# Experimento 05: evidências depois do índice (status, criado_em DESC, id DESC)
+# gerado por analise/evidencias-05-indice-status.sh em 2026-11-15 11:18:02 -0300, commit 60b47b9
+
+## Índices da tabela pedidos e o espaço que ocupam
+             indice              | tamanho |  bytes   
+---------------------------------+---------+----------
+ pedidos_pkey                    | 11 MB   | 11255808
+ pedidos_cliente_id_idx          | 5720 kB |  5857280
+ pedidos_status_criado_em_id_idx | 21 MB   | 22118400
+(3 rows)
+
+ tamanho_do_banco 
+------------------
+ 353 MB
+(1 row)
+
+
+## GET /pedidos?status=pago&pagina=500: contagem (antes: diagnostico/saidas/04d1-explain-pedidos-por-status-contagem.txt)
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=11255.15..11255.16 rows=1 width=8) (actual time=29.698..32.815 rows=1 loops=1)
+   Buffers: shared hit=1550
+   ->  Gather  (cost=11254.93..11255.14 rows=2 width=8) (actual time=29.469..32.805 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=1550
+         ->  Partial Aggregate  (cost=10254.93..10254.94 rows=1 width=8) (actual time=26.962..26.963 rows=1 loops=3)
+               Buffers: shared hit=1550
+               ->  Parallel Index Only Scan using pedidos_status_criado_em_id_idx on pedidos  (cost=0.42..9945.16 rows=123910 width=0) (actual time=0.037..22.349 rows=100000 loops=3)
+                     Index Cond: (status = 'pago'::text)
+                     Heap Fetches: 188
+                     Buffers: shared hit=1550
+ Planning:
+   Buffers: shared hit=103 read=8
+ Planning Time: 2.422 ms
+ Execution Time: 33.103 ms
+(16 rows)
+
+
+## GET /pedidos?status=pago&pagina=500: página (antes: diagnostico/saidas/04d2-explain-pedidos-por-status-pagina.txt)
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=2936.89..2942.78 rows=20 width=299) (actual time=10.783..10.794 rows=20 loops=1)
+   Buffers: shared hit=10032 read=20
+   ->  Index Scan using pedidos_status_criado_em_id_idx on pedidos  (cost=0.42..87501.07 rows=297383 width=299) (actual time=0.031..10.502 rows=10000 loops=1)
+         Index Cond: (status = 'pago'::text)
+         Buffers: shared hit=10032 read=20
+ Planning:
+   Buffers: shared hit=137 read=2
+ Planning Time: 0.645 ms
+ Execution Time: 10.823 ms
+(9 rows)
+
+
+## A última página que a carga sorteia (pagina=1000, OFFSET 19980), para ver o custo do OFFSET
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=5879.25..5885.13 rows=20 width=299) (actual time=20.002..20.015 rows=20 loops=1)
+   Buffers: shared hit=20099 read=2
+   ->  Index Scan using pedidos_status_criado_em_id_idx on pedidos  (cost=0.42..87501.07 rows=297383 width=299) (actual time=0.043..19.267 rows=20000 loops=1)
+         Index Cond: (status = 'pago'::text)
+         Buffers: shared hit=20099 read=2
+ Planning:
+   Buffers: shared hit=139
+ Planning Time: 0.410 ms
+ Execution Time: 20.049 ms
+(9 rows)
+
