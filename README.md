@@ -4,6 +4,70 @@ Aplicação do desafio técnico da vaga de estágio em Pesquisa e Inovação da 
 
 A aplicação é a API de uma loja fictícia, em Node.js (Express) com PostgreSQL 16, rodando em containers. Ela funciona, mas fica lenta sob carga e gasta mais recursos do que deveria. Todos os dados são sintéticos e gerados na primeira subida: 100 mil clientes, 20 mil produtos, 500 mil pedidos e 1,5 milhão de itens de pedido.
 
+## O problema e os resultados desta solução
+
+> Seção acrescentada por Jose Carlos. As instruções originais de instalar, subir e medir continuam abaixo, sem alteração.
+
+**O problema.** Com 20 usuários simultâneos, a API atendia **2,96 requisições/s**, com p95 de **22,5 s**, e o container do banco ficava em ~94% de 1 CPU. O [diagnóstico](diagnostico/README.md) encontrou oito causas, com a evidência salva em arquivo:
+- índices faltando nas chaves estrangeiras, no e-mail e na paginação por status;
+- uma consulta por pedido e por item (N+1) na rota mais usada;
+- uma conexão nova por consulta;
+- relatórios que liam e agregavam as tabelas inteiras a cada chamada;
+- um log com o corpo inteiro de cada resposta.
+
+**O resultado.** A tabela compara a mediana de 3 execuções do `scripts/medir.sh` (20 usuários virtuais, 60 s, semente 42), na mesma máquina, sem mudar nenhuma resposta: o verificador de contrato deu 42 de 42 respostas iguais em todas as medições.
+
+| Métrica (mediana de 3) | Linha de base (`00`) | Estado final (`09`) | Variação |
+| --- | ---: | ---: | ---: |
+| Requisições/s | 2,96 | 46,95 | cerca de 16× |
+| p95 geral | 22.484 ms | 947 ms | −95,8% |
+| Mediana geral | 1.400 ms | 388 ms | −72,3% |
+| Erros | 0% | 0% | - |
+| CPU média do banco (1 CPU = 100%) | 94,3% | 64,6% | −31,5% |
+| CPU média da API (limite de 0,5 CPU = 50%) | 7,2% | 43,0% | +493,5% |
+| Log da API por requisição | 1.226 bytes | 84 bytes | −93% |
+
+Os números vêm de [`analise/saidas/09-log-sem-corpo-vs-linha-de-base-medianas.md`](analise/saidas/09-log-sem-corpo-vs-linha-de-base-medianas.md), gerado pelo [`analise/medianas.js`](analise/medianas.js) a partir das pastas de [`resultados/`](resultados/). O log vem de [`analise/saidas/09-log-sem-corpo-log.txt`](analise/saidas/09-log-sem-corpo-log.txt).
+
+**O custo.**
+- **Containers:** nenhum container novo e nenhum limite aumentado.
+- **Banco:** cresceu de 301 para 359 MB, com cinco índices novos nas tabelas e uma *view* materializada com o próprio índice (`banco/03` a `banco/07`).
+- **Relatório `top-produtos`:** passou a ler uma *view* que precisa de `REFRESH` (1,33 s) quando os dados mudarem.
+- **CPU:** o banco ficou com folga, e a API passou a ser o gargalo, perto do limite de 0,5 CPU.
+
+![Requisições por segundo e p95 geral da linha de base e de cada experimento](artigo/img/evolucao.svg)
+
+| # | Mudança | Requisições/s (antes → depois) | Status |
+| --- | --- | --- | --- |
+| 01 | Índices nas chaves estrangeiras | 2,96 → 5,57 | Aplicada e medida |
+| 02 | Fim do N+1 em `GET /clientes/:id/pedidos` | 5,57 → 7,05 | Aplicada e medida (p95 geral subiu; veja o registro) |
+| 03 | `pg.Pool` no lugar de uma conexão por consulta | 7,05 → 8,23 | Aplicada e medida (mediana subiu; veja o registro) |
+| 04 | Índice em `lower(email)` | 8,23 → 8,70 | Aplicada e medida (ganho geral incerto) |
+| 05 | Índice `(status, criado_em DESC, id DESC)` | 8,70 → 15,68 | Aplicada e medida |
+| 06 | Índice em `(criado_em::date)` | 15,68 → 17,80 | Aplicada e medida (ganho geral incerto) |
+| 07 | *View* materializada para `top-produtos` | 17,80 → 44,70 | Aplicada e medida |
+| 09 | Log sem o corpo da resposta | 44,70 → 46,95 | Aplicada, ganho de custo (log), sem ganho de tempo |
+
+**Onde está cada parte:**
+
+| Arquivo | Conteúdo |
+| --- | --- |
+| [`diagnostico/README.md`](diagnostico/README.md) | Etapa 02: onde a aplicação perde tempo, com `EXPLAIN ANALYZE` e contagens salvas em `diagnostico/saidas/` |
+| [`pesquisa.md`](pesquisa.md) | Etapa 03: fontes (documentação, artigos e casos de mercado) e alternativas por problema |
+| [`experimentos.md`](experimentos.md) | Etapa 04: hipótese, mudança, commit, evidências e medianas de cada experimento, incluindo o que não funcionou |
+| [`proximos-testes.md`](proximos-testes.md) | Ideias pesquisadas e não medidas, com fonte, ganho esperado e como testar |
+| [`artigo/artigo.md`](artigo/artigo.md) | Artigo com o problema, o estado da arte, as alternativas, o experimento e os limites |
+| [`analise/`](analise/) | Scripts que calculam as medianas, coletam evidências e geram o gráfico, e as saídas deles em `analise/saidas/` |
+
+**Para repetir a comparação** (requer as pastas de `resultados/` já commitadas):
+
+```bash
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD":/w -w /w node:20.18.0-alpine \
+  node analise/medianas.js 00-linha-de-base 09-log-sem-corpo
+```
+
+**Aviso sobre o `recursos.txt`:** as colunas `cpu_max` e `mem_max` geradas pelo `scripts/medir.sh` podem sair erradas, porque o `awk` compara os valores como texto. O script não foi editado, porque o desafio proíbe mexer em `scripts/`. Os máximos citados aqui foram recalculados pelo `analise/medianas.js` a partir do `recursos.csv` ([detalhes](experimentos.md#como-os-números-foram-calculados)).
+
 ## Prazo e entrega
 
 - **Prazo e entregas:** estão no enunciado enviado na largada
